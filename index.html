@@ -482,25 +482,6 @@ function HomeScreen({ onOpenApp }) {
         <div style={{ fontSize: 96, fontWeight: 200, lineHeight: 1, marginTop: 4, letterSpacing: -3, fontVariantNumeric: 'tabular-nums' }}>{formatTime(now)}</div>
       </div>
 
-      {/* CineMatch promo widget */}
-      <div style={{ padding: '0 18px', marginBottom: 22, position: 'relative', zIndex: 2 }}>
-        <div onClick={onOpenApp} style={{
-          background: 'rgba(13,27,42,0.78)',
-          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          borderRadius: 20, padding: '14px 16px',
-          border: '0.5px solid rgba(255,255,255,0.08)',
-          display: 'flex', alignItems: 'center', gap: 14,
-          cursor: 'pointer',
-        }}>
-          <CineIcon size={50} radius={12}/>
-          <div style={{ flex: 1, minWidth: 0, color: 'white' }}>
-            <div style={{ fontSize: 10, letterSpacing: 2, color: RED, textTransform: 'uppercase', fontWeight: 600 }}>CineMatch · Ce soir</div>
-            <div style={{ fontFamily: '"Bebas Neue", sans-serif', fontSize: 20, lineHeight: 1.05, marginTop: 4, letterSpacing: 0.5 }}>VOTRE SÉANCE VOUS ATTEND</div>
-            <div style={{ fontSize: 11, color: 'rgba(245,240,232,0.7)', marginTop: 6, lineHeight: 1.2 }}>Choisissez votre humeur · 40 films à découvrir</div>
-          </div>
-        </div>
-      </div>
-
       {/* App grid */}
       <div style={{
         flex: 1, minHeight: 0,
