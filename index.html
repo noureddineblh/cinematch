@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
+<meta name="theme-color" content="#0D1B2A"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>CineMatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #000;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    color: #F5F0E8;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  button { font: inherit; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+
+  /* Stage: full viewport */
+  #root { height: 100%; }
+
+  /* Phone frame visible on desktop only */
+  .cm-stage {
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at 50% 30%, #182838 0%, #050a12 75%);
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+  }
+  .cm-phone {
+    width: 100%; height: 100%;
+    background: #0D1B2A;
+    position: relative; overflow: hidden;
+  }
+  /* The design canvas — always 390x844 logical px; scaled by JS */
+  .cm-canvas {
+    position: absolute; top: 50%; left: 50%;
+    width: 390px; height: 844px;
+    transform-origin: center center;
+    /* scale set inline by JS via CSS var --cm-fit */
+    transform: translate(-50%, -50%) scale(var(--cm-fit, 1));
+  }
+  @media (min-width: 600px) {
+    .cm-stage { padding: 28px; }
+    .cm-phone {
+      width: 390px; height: min(844px, calc(100vh - 56px));
+      max-height: 844px;
+      border-radius: 48px;
+      box-shadow: 0 40px 80px rgba(0,0,0,0.55), 0 0 0 10px #1a1a1a, 0 0 0 11px #2a2a2a;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .cm-phone::before {
+      /* dynamic island */
+      content: ""; position: absolute; top: 11px; left: 50%;
+      transform: translateX(-50%); width: 126px; height: 37px;
+      border-radius: 24px; background: #000; z-index: 100;
+    }
+    .cm-home-indicator { display: block !important; }
+  }
+  /* Mobile: no frame, but reserve safe-area for status bar */
+  @media (max-width: 599px) {
+    .cm-status-time { display: none; } /* OS shows real time */
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const NIGHT = '#0D1B2A';
+const RED   = '#E50914';
+const CREAM = '#F5F0E8';
+
+// ─── DATA ────────────────────────────────────────────────────────────
+const MOODS = [
+  { id: 'joyeux',       label: 'Joyeux',       fr: 'Lumineux et chaleureux',  hue: 38,  glyph: 'sun'     },
+  { id: 'melancolique', label: 'Mélancolique', fr: 'Doux-amer, contemplatif', hue: 220, glyph: 'rain'    },
+  { id: 'aventureux',   label: 'Aventureux',   fr: 'Grands horizons',         hue: 195, glyph: 'wave'    },
+  { id: 'reveur',       label: 'Rêveur',       fr: 'Entre songe et réalité',  hue: 280, glyph: 'moon'    },
+  { id: 'rigolo',       label: 'Rigolo',       fr: 'Légèreté et sourires',    hue: 12,  glyph: 'smile'   },
+  { id: 'magique',      label: 'Magique',      fr: 'Merveilleux et enchanté', hue: 320, glyph: 'sparkle' },
+];
+
+const FILMS = {
+  // ── Pixar ─────────────────────────────────────────────────────────
+  vice_versa:    { title: 'Vice-Versa',          year: 2015, runtime: '1h 35', studio: 'Pixar',          tagline: 'Une aventure au cœur des émotions' },
+  la_haut:       { title: 'Là-Haut',             year: 2009, runtime: '1h 36', studio: 'Pixar',          tagline: 'Une maison, des ballons, un grand voyage' },
+  monstres_cie:  { title: 'Monstres et Cie',     year: 2001, runtime: '1h 32', studio: 'Pixar',          tagline: 'Le rire alimente le monde' },
+  nemo:          { title: 'Le Monde de Nemo',    year: 2003, runtime: '1h 40', studio: 'Pixar',          tagline: 'Un père au bout de l\u2019océan' },
+  wall_e:        { title: 'Wall-E',              year: 2008, runtime: '1h 38', studio: 'Pixar',          tagline: 'Le dernier robot sur Terre' },
+  rebelle:       { title: 'Rebelle',             year: 2012, runtime: '1h 33', studio: 'Pixar',          tagline: 'Une princesse, une malédiction, une forêt' },
+  soul:          { title: 'Soul',                year: 2020, runtime: '1h 41', studio: 'Pixar',          tagline: 'Qu\u2019est-ce qui vous fait vivre ?' },
+  elementaire:   { title: 'Élémentaire',         year: 2023, runtime: '1h 41', studio: 'Pixar',          tagline: 'Le feu et l\u2019eau peuvent-ils s\u2019aimer ?' },
+  alerte_rouge:  { title: 'Alerte Rouge',        year: 2022, runtime: '1h 40', studio: 'Pixar',          tagline: 'Treize ans, et un panda roux à l\u2019intérieur' },
+  ratatouille:   { title: 'Ratatouille',         year: 2007, runtime: '1h 51', studio: 'Pixar',          tagline: 'Tout le monde peut cuisiner' },
+  coco:          { title: 'Coco',                year: 2017, runtime: '1h 45', studio: 'Pixar',          tagline: 'La mémoire des ancêtres' },
+  luca:          { title: 'Luca',                year: 2021, runtime: '1h 35', studio: 'Pixar',          tagline: 'Un été sur la Riviera' },
+  // ── Disney Animation ──────────────────────────────────────────────
+  reine_neiges:  { title: 'La Reine des Neiges', year: 2013, runtime: '1h 42', studio: 'Disney',         tagline: 'Le pouvoir de la glace, le lien de deux sœurs' },
+  raiponce:      { title: 'Raiponce',            year: 2010, runtime: '1h 40', studio: 'Disney',         tagline: 'Une tour, une chevelure, un destin' },
+  zootopie:      { title: 'Zootopie',            year: 2016, runtime: '1h 48', studio: 'Disney',         tagline: 'Une métropole où tout le monde a sa place' },
+  nouveaux_heros:{ title: 'Les Nouveaux Héros',  year: 2014, runtime: '1h 42', studio: 'Disney',         tagline: 'Un robot doux et un cœur en éveil' },
+  roi_lion:      { title: 'Le Roi Lion',         year: 1994, runtime: '1h 28', studio: 'Disney',         tagline: 'L\u2019héritier devra retrouver sa place' },
+  aladdin:       { title: 'Aladdin',             year: 1992, runtime: '1h 30', studio: 'Disney',         tagline: 'Une lampe, un vœu, un monde nouveau' },
+  lilo_stitch:   { title: 'Lilo & Stitch',       year: 2002, runtime: '1h 25', studio: 'Disney',         tagline: 'Ohana veut dire famille' },
+  atlantide:     { title: 'Atlantide',           year: 2001, runtime: '1h 36', studio: 'Disney',         tagline: 'L\u2019empire perdu sous les flots' },
+  kuzco:         { title: 'Kuzco',               year: 2000, runtime: '1h 18', studio: 'Disney',         tagline: 'Un empereur, un lama, un éclat de rire' },
+  encanto:       { title: 'Encanto',             year: 2021, runtime: '1h 49', studio: 'Disney',         tagline: 'Une maison qui respire la magie' },
+  vaiana:        { title: 'Vaiana',              year: 2016, runtime: '1h 47', studio: 'Disney',         tagline: 'L\u2019appel du grand large' },
+  // ── Studio Ghibli ─────────────────────────────────────────────────
+  chihiro:       { title: 'Le Voyage de Chihiro',year: 2001, runtime: '2h 05', studio: 'Studio Ghibli',  tagline: 'Un tunnel, un monde d\u2019esprits' },
+  totoro:        { title: 'Mon Voisin Totoro',   year: 1988, runtime: '1h 26', studio: 'Studio Ghibli',  tagline: 'L\u2019enfance, la forêt, un esprit doux' },
+  ponyo:         { title: 'Ponyo',               year: 2008, runtime: '1h 41', studio: 'Studio Ghibli',  tagline: 'Une fille-poisson et un garçon' },
+  kiki:          { title: 'Kiki la petite sorcière', year: 1989, runtime: '1h 43', studio: 'Studio Ghibli', tagline: 'Une jeune sorcière sur son balai' },
+  chateau_amb:   { title: 'Le Château ambulant', year: 2004, runtime: '1h 59', studio: 'Studio Ghibli',  tagline: 'Un sortilège, une maison qui marche' },
+  mononoke:      { title: 'Princesse Mononoké', year: 1997, runtime: '2h 14', studio: 'Studio Ghibli',  tagline: 'La forêt et les hommes en guerre' },
+  arrietty:      { title: 'Arrietty',            year: 2010, runtime: '1h 34', studio: 'Studio Ghibli',  tagline: 'Le monde secret des chapardeurs' },
+  // ── DreamWorks ────────────────────────────────────────────────────
+  shrek:         { title: 'Shrek',               year: 2001, runtime: '1h 30', studio: 'DreamWorks',     tagline: 'Un ogre, un âne, un conte à l\u2019envers' },
+  dragons:       { title: 'Dragons',             year: 2010, runtime: '1h 38', studio: 'DreamWorks',     tagline: 'Apprivoiser ce que l\u2019on craint' },
+  kung_fu_panda: { title: 'Kung Fu Panda',       year: 2008, runtime: '1h 32', studio: 'DreamWorks',     tagline: 'Le guerrier dragon est un panda' },
+  chat_potte:    { title: 'Le Chat Potté',       year: 2011, runtime: '1h 30', studio: 'DreamWorks',     tagline: 'Un félin, neuf vies, mille bottes' },
+  madagascar:    { title: 'Madagascar',          year: 2005, runtime: '1h 26', studio: 'DreamWorks',     tagline: 'Quatre amis, une île, le bazar' },
+  // ── Autres studios ───────────────────────────────────────────────
+  age_glace:     { title: 'L\u2019Âge de Glace', year: 2002, runtime: '1h 21', studio: 'Blue Sky',       tagline: 'Trois compagnons, une noix, un long voyage' },
+  minions:       { title: 'Les Minions',         year: 2015, runtime: '1h 31', studio: 'Illumination',   tagline: 'Une horde jaune en quête de chef' },
+  spider_verse:  { title: 'Spider-Man : New Generation', year: 2018, runtime: '1h 57', studio: 'Sony Pictures Animation', tagline: 'Tout le monde porte le masque' },
+  petit_prince:  { title: 'Le Petit Prince',     year: 2015, runtime: '1h 48', studio: 'Onyx Films',     tagline: 'L\u2019essentiel est invisible pour les yeux' },
+  wolfwalkers:   { title: 'Wolfwalkers',         year: 2020, runtime: '1h 43', studio: 'Cartoon Saloon', tagline: 'Le jour, une fille. La nuit, un loup' },
+  klaus:         { title: 'Klaus',               year: 2019, runtime: '1h 36', studio: 'Netflix Animation', tagline: 'Un facteur, une cabane, une légende' },
+};
+
+// Per-film compatibility across moods (0–100). Each mood ranks films independently.
+const FILM_SCORES = {
+  //                joyeux mélan aventu rêveur rigolo magique
+  vice_versa:    [   72,    98,    65,    78,    75,    70  ],
+  la_haut:       [   70,    96,    88,    92,    68,    80  ],
+  monstres_cie:  [   90,    65,    70,    72,    92,    76  ],
+  nemo:          [   86,    72,    92,    70,    75,    68  ],
+  wall_e:        [   65,    94,    80,    90,    60,    78  ],
+  rebelle:       [   72,    70,    90,    78,    70,    82  ],
+  soul:          [   70,    92,    65,    88,    68,    84  ],
+  elementaire:   [   84,    78,    70,    80,    76,    86  ],
+  alerte_rouge:  [   88,    72,    68,    70,    90,    65  ],
+  ratatouille:   [   90,    76,    78,    72,    94,    70  ],
+  coco:          [   78,    92,    80,    88,    70,    95  ],
+  luca:          [   92,    78,    88,    84,    86,    72  ],
+  reine_neiges:  [   86,    75,    78,    84,    72,    92  ],
+  raiponce:      [   92,    70,    86,    88,    80,    90  ],
+  zootopie:      [   90,    65,    82,    65,    88,    60  ],
+  nouveaux_heros:[   84,    80,    88,    72,    82,    75  ],
+  roi_lion:      [   84,    86,    92,    75,    68,    80  ],
+  aladdin:       [   90,    70,    92,    82,    88,    90  ],
+  lilo_stitch:   [   88,    80,    78,    70,    86,    72  ],
+  atlantide:     [   70,    72,    95,    78,    65,    85  ],
+  kuzco:         [   92,    55,    70,    60,    96,    60  ],
+  encanto:       [   94,    78,    72,    84,    80,    96  ],
+  vaiana:        [   96,    74,    96,    80,    78,    88  ],
+  chihiro:       [   65,    84,    86,    92,    60,    98  ],
+  totoro:        [   80,    78,    70,    98,    75,    92  ],
+  ponyo:         [   82,    70,    78,    90,    80,    88  ],
+  kiki:          [   86,    80,    80,    85,    78,    88  ],
+  chateau_amb:   [   70,    86,    84,    96,    72,    95  ],
+  mononoke:      [   60,    80,    98,    78,    50,    84  ],
+  arrietty:      [   70,    84,    80,    90,    65,    86  ],
+  shrek:         [   88,    60,    72,    65,    97,    70  ],
+  dragons:       [   86,    80,    96,    82,    75,    84  ],
+  kung_fu_panda: [   88,    65,    86,    70,    92,    72  ],
+  chat_potte:    [   84,    78,    88,    75,    92,    76  ],
+  madagascar:    [   90,    50,    80,    60,    96,    55  ],
+  age_glace:     [   84,    68,    82,    65,    95,    60  ],
+  minions:       [   90,    50,    70,    55,    96,    58  ],
+  spider_verse:  [   78,    84,    92,    80,    76,    84  ],
+  petit_prince:  [   70,    95,    70,    96,    65,    88  ],
+  wolfwalkers:   [   68,    88,    90,    92,    65,    92  ],
+  klaus:         [   82,    85,    72,    82,    78,    94  ],
+};
+
+const MOOD_ORDER = ['joyeux', 'melancolique', 'aventureux', 'reveur', 'rigolo', 'magique'];
+
+// Build a per-mood ranking, top 12 films each.
+const RECOMMENDATIONS = Object.fromEntries(
+  MOOD_ORDER.map((mood, mIdx) => [
+    mood,
+    Object.entries(FILM_SCORES)
+      .map(([id, scores]) => ({ id, score: scores[mIdx] }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12),
+  ])
+);
+
+// Score lookup for combined-mood computation (covers ALL films, not just top-12).
+function scoreFor(filmId, moodId) {
+  const mIdx = MOOD_ORDER.indexOf(moodId);
+  return FILM_SCORES[filmId]?.[mIdx] ?? 50;
+}
+
+// ─── FIT-TO-CONTAINER HOOK ───────────────────────────────────────────
+// Returns a ref to attach to the phone element. Sets --cm-fit on phone
+// based on container vs. design (390x844) so content always fits.
+function useFitToPhone() {
+  const ref = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const r = el.getBoundingClientRect();
+      const scale = Math.min(r.width / 390, r.height / 844, 1);
+      el.style.setProperty('--cm-fit', String(scale));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    window.addEventListener('resize', fit);
+    return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
+  }, []);
+  return ref;
+}
+
+// ─── LIVE CLOCK HOOK ─────────────────────────────────────────────────
+function useNow() {
+  const [now, setNow] = React.useState(new Date());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000 * 15);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+const DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const MONTHS = ['janv.', 'févr.', 'mars', 'avril', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+function formatTime(d) { return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
+function formatDate(d) { return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; }
+
+// ─── LOGO ────────────────────────────────────────────────────────────
+function CineMatchLogo({ size = 'lg' }) {
+  const fs = size === 'lg' ? 52 : size === 'md' ? 30 : 20;
+  const triSize = fs * 0.55;
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      gap: fs * 0.14,
+      fontFamily: '"Bebas Neue", "Arial Narrow", sans-serif',
+      fontSize: fs, lineHeight: 0.85, letterSpacing: fs * 0.01, fontWeight: 400,
+    }}>
+      <span style={{ color: CREAM }}>CINE</span>
+      <span style={{ color: RED, textShadow: size === 'lg' ? `0 0 24px ${RED}55, 0 0 2px ${RED}` : 'none' }}>MATCH</span>
+      <svg width={triSize} height={triSize} viewBox="0 0 12 12" style={{ marginLeft: fs * 0.05, marginBottom: fs * 0.04 }}>
+        <polygon points="2,1 11,6 2,11" fill={RED} style={{ filter: size === 'lg' ? `drop-shadow(0 0 6px ${RED}88)` : 'none' }}/>
+      </svg>
+    </div>
+  );
+}
+
+// ─── APP ICON (for home screen) ──────────────────────────────────────
+function CineIcon({ size = 76, radius = 18 }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: radius,
+      position: 'relative', overflow: 'hidden',
+      background: `radial-gradient(circle at 50% 38%, #1a2f44 0%, ${NIGHT} 55%, #050b14 100%)`,
+      boxShadow: `0 ${size*0.06}px ${size*0.18}px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08)`,
+      cursor: 'pointer',
+    }}>
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: '50%',
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 100%)',
+      }}/>
+      <div style={{
+        position: 'absolute', top: '50%', left: '50%',
+        width: '85%', height: '85%', transform: 'translate(-50%, -50%)',
+        borderRadius: '50%',
+        background: `radial-gradient(circle, ${RED}55 0%, ${RED}15 35%, transparent 65%)`,
+        filter: `blur(${size*0.04}px)`,
+      }}/>
+      <svg viewBox="0 0 100 100" width={size*0.62} height={size*0.62} style={{
+        position: 'absolute', top: '50%', left: '52%', transform: 'translate(-50%, -50%)',
+        filter: `drop-shadow(0 0 ${size*0.08}px ${RED}cc) drop-shadow(0 ${size*0.02}px ${size*0.04}px rgba(0,0,0,0.5))`,
+      }}>
+        <polygon points="22,12 86,50 22,88" fill={RED} stroke={CREAM} strokeWidth="1.5" strokeLinejoin="round" strokeOpacity="0.15"/>
+      </svg>
+      <div style={{
+        position: 'absolute', top: size*0.10, right: size*0.10,
+        width: size*0.10, height: size*0.10,
+        borderTop: `1px solid ${RED}`, borderRight: `1px solid ${RED}`, opacity: 0.5,
+      }}/>
+      {[0, 1].map(side => (
+        <div key={side} style={{
+          position: 'absolute', [side ? 'right' : 'left']: size*0.06, top: size*0.18, bottom: size*0.18,
+          width: size*0.04, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        }}>
+          {[...Array(5)].map((_,i) => (
+            <div key={i} style={{ width: '100%', height: size*0.045, borderRadius: size*0.01, background: `${CREAM}22` }}/>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Generic icon for home grid (decorative)
+function GenericIcon({ bg, fg = 'white', glyph, size = 56, radius = 13 }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: radius, background: bg, color: fg,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 0 0 0.5px rgba(255,255,255,0.1)',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: '50%',
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)',
+      }}/>
+      {glyph}
+    </div>
+  );
+}
+function HomeAppTile({ children, label, dim = false, badge, onClick, featured = false }) {
+  return (
+    <div onClick={onClick} style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+      cursor: onClick ? 'pointer' : 'default',
+      opacity: dim ? 0.55 : 1,
+      transform: featured ? 'scale(1.08)' : 'none',
+      filter: featured ? `drop-shadow(0 8px 22px ${RED}66)` : 'none',
+      transition: 'transform 0.2s ease',
+    }}>
+      <div style={{ position: 'relative' }}>
+        {children}
+        {badge != null && (
+          <div style={{
+            position: 'absolute', top: -4, right: -4,
+            minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10,
+            background: '#FF3B30', color: 'white',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 12, fontWeight: 700,
+            boxShadow: '0 0 0 1.5px rgba(0,0,0,0.2)',
+          }}>{badge}</div>
+        )}
+      </div>
+      <div style={{
+        fontSize: 12, color: 'white', fontWeight: 400,
+        textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+      }}>{label}</div>
+    </div>
+  );
+}
+
+// ─── MOOD GLYPHS ─────────────────────────────────────────────────────
+function MoodGlyph({ kind, color = RED, size = 36 }) {
+  const s = size;
+  switch (kind) {
+    case 'sun':
+      return (<svg width={s} height={s} viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="6" stroke={color} strokeWidth="1.2"/>
+        {[...Array(8)].map((_,i)=>{
+          const a = (i*Math.PI*2)/8;
+          return <line key={i} x1={18+Math.cos(a)*10} y1={18+Math.sin(a)*10} x2={18+Math.cos(a)*14} y2={18+Math.sin(a)*14} stroke={color} strokeWidth="1.2" strokeLinecap="round"/>;
+        })}
+      </svg>);
+    case 'rain':
+      return (<svg width={s} height={s} viewBox="0 0 36 36" fill="none">
+        <path d="M9 14 Q12 9 18 10 Q24 8 26 13 Q30 14 28 19 Q26 22 22 21 L12 21 Q8 20 9 14 Z" stroke={color} strokeWidth="1.2"/>
+        <line x1="13" y1="25" x2="11" y2="29" stroke={color} strokeWidth="1.2" strokeLinecap="round"/>
+        <line x1="18" y1="25" x2="16" y2="29" stroke={color} strokeWidth="1.2" strokeLinecap="round"/>
+        <line x1="23" y1="25" x2="21" y2="29" stroke={color} strokeWidth="1.2" strokeLinecap="round"/>
+      </svg>);
+    case 'wave':
+      return (<svg width={s} height={s} viewBox="0 0 36 36" fill="none">
+        <path d="M4 14 Q9 9 14 14 T24 14 T34 14" stroke={color} strokeWidth="1.2" strokeLinecap="round"/>
+        <path d="M4 21 Q9 16 14 21 T24 21 T34 21" stroke={color} strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
+        <path d="M4 28 Q9 23 14 28 T24 28 T34 28" stroke={color} strokeWidth="1.2" strokeLinecap="round" opacity="0.4"/>
+      </svg>);
+    case 'moon':
+      return (<svg width={s} height={s} viewBox="0 0 36 36" fill="none">
+        <path d="M22 6 A12 12 0 1 0 30 22 A9 9 0 0 1 22 6 Z" stroke={color} strokeWidth="1.2" strokeLinejoin="round"/>
+        <circle cx="9" cy="10" r="0.8" fill={color}/><circle cx="6" cy="20" r="0.6" fill={color}/>
+      </svg>);
+    case 'smile':
+      return (<svg width={s} height={s} viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="12" stroke={color} strokeWidth="1.2"/>
+        <path d="M12 20 Q18 26 24 20" stroke={color} strokeWidth="1.2" strokeLinecap="round" fill="none"/>
+        <circle cx="13" cy="14" r="1" fill={color}/><circle cx="23" cy="14" r="1" fill={color}/>
+      </svg>);
+    case 'sparkle':
+      return (<svg width={s} height={s} viewBox="0 0 36 36" fill="none">
+        <path d="M18 4 L20 16 L32 18 L20 20 L18 32 L16 20 L4 18 L16 16 Z" stroke={color} strokeWidth="1.2" strokeLinejoin="round"/>
+        <path d="M28 6 L29 10 L33 11 L29 12 L28 16 L27 12 L23 11 L27 10 Z" stroke={color} strokeWidth="0.9" strokeLinejoin="round" opacity="0.6"/>
+      </svg>);
+    default: return null;
+  }
+}
+
+// ─── SCORE ARC ───────────────────────────────────────────────────────
+function ScoreArc({ score, size = 52, stroke = 3 }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const dash = (score / 100) * c;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} stroke={`${CREAM}15`} strokeWidth={stroke} fill="none"/>
+        <circle cx={size/2} cy={size/2} r={r} stroke={RED} strokeWidth={stroke} fill="none"
+          strokeDasharray={`${dash} ${c}`} strokeLinecap="round"
+          style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(.2,.7,.2,1)' }}/>
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: '"Cormorant Garamond", serif', fontStyle: 'italic',
+        color: CREAM, fontSize: size > 60 ? 22 : 16, fontWeight: 500,
+      }}>
+        <span>{score}<span style={{ fontSize: '0.55em', color: RED, marginLeft: 1 }}>%</span></span>
+      </div>
+    </div>
+  );
+}
+
+function Bracket({ pos }) {
+  const s = 12;
+  const base = { position: 'absolute', width: s, height: s, borderColor: RED, borderStyle: 'solid' };
+  const styles = {
+    tl: { ...base, top: 8, left: 8, borderWidth: '1px 0 0 1px' },
+    tr: { ...base, top: 8, right: 8, borderWidth: '1px 1px 0 0' },
+    bl: { ...base, bottom: 8, left: 8, borderWidth: '0 0 1px 1px' },
+    br: { ...base, bottom: 8, right: 8, borderWidth: '0 1px 1px 0' },
+  };
+  return <div style={styles[pos]}/>;
+}
+
+// ─── STATUS BAR (drawn at top of phone) ──────────────────────────────
+function StatusBar({ time, dark = true }) {
+  const c = dark ? '#fff' : '#000';
+  return (
+    <div className="cm-status-time" style={{
+      position: 'absolute', top: 0, left: 0, right: 0, height: 50, zIndex: 60,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '14px 30px 0', color: c, pointerEvents: 'none',
+    }}>
+      <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: 0.2 }}>{time}</span>
+      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+        <svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="0.6" fill={c}/><rect x="4.5" y="5" width="3" height="6" rx="0.6" fill={c}/><rect x="9" y="2.5" width="3" height="8.5" rx="0.6" fill={c}/><rect x="13.5" y="0" width="3" height="11" rx="0.6" fill={c}/></svg>
+        <svg width="16" height="11" viewBox="0 0 16 11"><path d="M8 2.5C10 2.5 11.5 3.2 13 4.5L14 3.5C12.5 2 10.5 1 8 1S3.5 2 2 3.5L3 4.5C4.5 3.2 6 2.5 8 2.5z" fill={c}/><path d="M8 5.5C9.2 5.5 10.3 6 11 6.7L12 5.7C11 4.5 9.5 4 8 4S5 4.5 4 5.7L5 6.7C5.7 6 6.8 5.5 8 5.5z" fill={c}/><circle cx="8" cy="9.5" r="1.3" fill={c}/></svg>
+        <svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3" stroke={c} strokeOpacity="0.4" fill="none"/><rect x="2" y="2" width="18" height="8" rx="1.8" fill={c}/><path d="M23 4v4c0.7-0.3 1.3-1 1.3-2S23.7 4.3 23 4z" fill={c} fillOpacity="0.4"/></svg>
+      </div>
+    </div>
+  );
+}
+
+// ─── HOME SCREEN ─────────────────────────────────────────────────────
+function HomeScreen({ onOpenApp }) {
+  const now = useNow();
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      background: `
+        radial-gradient(circle at 30% 18%, #4a2848 0%, transparent 52%),
+        radial-gradient(circle at 75% 82%, #1f3a5f 0%, transparent 58%),
+        linear-gradient(180deg, #0f0820 0%, #1a1530 38%, #0a0a14 100%)
+      `,
+      display: 'flex', flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      {/* grain */}
+      <div style={{
+        position: 'absolute', inset: 0, opacity: 0.08, pointerEvents: 'none',
+        backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=\\"http://www.w3.org/2000/svg\\" width=\\"160\\" height=\\"160\\"><filter id=\\"n\\"><feTurbulence type=\\"fractalNoise\\" baseFrequency=\\"0.9\\" numOctaves=\\"2\\"/></filter><rect width=\\"100%25\\" height=\\"100%25\\" filter=\\"url(%23n)\\" opacity=\\"0.7\\"/></svg>")',
+      }}/>
+
+      {/* time block */}
+      <div style={{ textAlign: 'center', color: 'white', paddingTop: 'max(60px, env(safe-area-inset-top, 60px))', paddingBottom: 18, position: 'relative', zIndex: 2 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, letterSpacing: 0.5, opacity: 0.95 }}>{formatDate(now)}</div>
+        <div style={{ fontSize: 96, fontWeight: 200, lineHeight: 1, marginTop: 4, letterSpacing: -3, fontVariantNumeric: 'tabular-nums' }}>{formatTime(now)}</div>
+      </div>
+
+      {/* CineMatch promo widget */}
+      <div style={{ padding: '0 18px', marginBottom: 22, position: 'relative', zIndex: 2 }}>
+        <div onClick={onOpenApp} style={{
+          background: 'rgba(13,27,42,0.78)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          borderRadius: 20, padding: '14px 16px',
+          border: '0.5px solid rgba(255,255,255,0.08)',
+          display: 'flex', alignItems: 'center', gap: 14,
+          cursor: 'pointer',
+        }}>
+          <CineIcon size={50} radius={12}/>
+          <div style={{ flex: 1, minWidth: 0, color: 'white' }}>
+            <div style={{ fontSize: 10, letterSpacing: 2, color: RED, textTransform: 'uppercase', fontWeight: 600 }}>CineMatch · Ce soir</div>
+            <div style={{ fontFamily: '"Bebas Neue", sans-serif', fontSize: 20, lineHeight: 1.05, marginTop: 4, letterSpacing: 0.5 }}>VOTRE SÉANCE VOUS ATTEND</div>
+            <div style={{ fontSize: 11, color: 'rgba(245,240,232,0.7)', marginTop: 6, lineHeight: 1.2 }}>Choisissez votre humeur · 40 films à découvrir</div>
+          </div>
+        </div>
+      </div>
+
+      {/* App grid */}
+      <div style={{
+        flex: 1, minHeight: 0,
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: 16, rowGap: 22, padding: '4px 22px 0',
+        position: 'relative', zIndex: 2, alignContent: 'start',
+      }}>
+        <HomeAppTile label="Messages" dim><GenericIcon bg="linear-gradient(180deg, #5BD968, #2CC93F)" glyph={
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.5 2 2 5.6 2 10c0 2.4 1.4 4.6 3.5 6 0 .8-.3 2-.7 2.8-.2.4.2.8.6.7 1.5-.4 3-1 4-1.7.8.2 1.7.3 2.6.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z"/></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="Téléphone" dim><GenericIcon bg="linear-gradient(180deg, #5BD968, #2CC93F)" glyph={
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M3.6 2h4l2 5-3 2c1.5 3.5 4 6 7.5 7.5l2-3 5 2v4c0 1-1 2-2 2C9 21 3 15 3 5c0-1.7 1-3 3-3z"/></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="Safari" dim><GenericIcon bg="radial-gradient(circle, #007AFF, #003E80)" glyph={
+          <svg width="42" height="42" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="white"/><polygon points="24,12 28,24 24,36 20,24" fill="#FF3B30"/><polygon points="24,12 28,24 24,24" fill="#cc2e26"/></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="Appareil" dim><GenericIcon bg="linear-gradient(180deg, #555, #222)" glyph={
+          <svg width="32" height="32" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2" fill="white"/><circle cx="12" cy="13" r="4" fill="#222"/><circle cx="12" cy="13" r="2.5" fill="#888"/></svg>
+        }/></HomeAppTile>
+
+        <HomeAppTile label="Plans" dim><GenericIcon bg="linear-gradient(180deg, #80D8A0, #4A9D6E)" glyph={
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M12 2 C8 2 5 5 5 9 c0 5 7 13 7 13 s7-8 7-13 c0-4-3-7-7-7z M12 11.5 a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="Photos" dim><GenericIcon bg="white" glyph={
+          <svg width="36" height="36" viewBox="0 0 48 48"><g transform="translate(24 24)"><circle r="5" fill="#FFCD3C"/>{[...Array(8)].map((_,i)=>{const a=(i*Math.PI*2)/8;return <ellipse key={i} cx={Math.cos(a)*9} cy={Math.sin(a)*9} rx="6" ry="2.5" fill={['#FFCD3C','#7ED957','#3CAEFF','#A56DFF','#FF6B9D','#FF8C42','#FF4A3D','#3CDFCB'][i]} transform={`rotate(${a*180/Math.PI})`} opacity="0.85"/>;})}</g></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="Notes" dim><GenericIcon bg="linear-gradient(180deg, #FFE89B, #F8C84F)" fg="#444" glyph={
+          <svg width="30" height="30" viewBox="0 0 24 24" stroke="#8a6a2e" strokeWidth="1.5" fill="none"><line x1="5" y1="8" x2="19" y2="8"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="5" y1="16" x2="14" y2="16"/></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="Réglages" dim><GenericIcon bg="linear-gradient(180deg, #b0b0b0, #6e6e6e)" glyph={
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="white"><path d="M19.4 13a7.5 7.5 0 000-2l2-1.5-2-3.5-2.4 1a7.5 7.5 0 00-1.7-1L14.8 3h-4l-.5 2.5a7.5 7.5 0 00-1.7 1l-2.4-1L4.2 9l2 1.5a7.5 7.5 0 000 2l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 001.7 1l.5 2.5h4l.5-2.5a7.5 7.5 0 001.7-1l2.4 1 2-3.5-2-1.5zM12 15a3 3 0 110-6 3 3 0 010 6z"/></svg>
+        }/></HomeAppTile>
+
+        <HomeAppTile label="Spotify" dim><GenericIcon bg="#1DB954" glyph={
+          <svg width="38" height="38" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#1DB954"/><path d="M12 18 Q24 14 36 20" stroke="black" strokeWidth="3.5" fill="none" strokeLinecap="round"/><path d="M13 24 Q24 21 33 26" stroke="black" strokeWidth="2.8" fill="none" strokeLinecap="round"/><path d="M14 30 Q23 28 31 31" stroke="black" strokeWidth="2.2" fill="none" strokeLinecap="round"/></svg>
+        }/></HomeAppTile>
+        <HomeAppTile label="YouTube" dim><GenericIcon bg="white" glyph={
+          <svg width="36" height="24" viewBox="0 0 48 34"><rect width="48" height="34" rx="8" fill="#FF0000"/><polygon points="20,10 20,24 32,17" fill="white"/></svg>
+        }/></HomeAppTile>
+        {/* FEATURED — CineMatch */}
+        <HomeAppTile label="CineMatch" badge={1} featured onClick={onOpenApp}>
+          <CineIcon size={60} radius={14}/>
+        </HomeAppTile>
+        <HomeAppTile label="App Store" dim><GenericIcon bg="linear-gradient(180deg, #00C8FF, #0073E6)" glyph={
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M16 2 L18 5 L14 5 Z M6 18 L8.5 14 L11 18 Z M13 18 L17 11 L21 18 Z M4 14 H18 L17 12 H5 Z"/></svg>
+        }/></HomeAppTile>
+      </div>
+
+      {/* Dock area */}
+      <div style={{
+        margin: '20px 16px 28px', padding: '14px 16px',
+        background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)',
+        borderRadius: 32,
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14,
+        border: '0.5px solid rgba(255,255,255,0.15)',
+        position: 'relative', zIndex: 2,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }}><GenericIcon bg="linear-gradient(180deg, #5BD968, #2CC93F)" glyph={
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.5 2 2 5.6 2 10c0 2.4 1.4 4.6 3.5 6 0 .8-.3 2-.7 2.8-.2.4.2.8.6.7 1.5-.4 3-1 4-1.7.8.2 1.7.3 2.6.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z"/></svg>
+        }/></div>
+        <div style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }}><GenericIcon bg="linear-gradient(180deg, #3CB4FF, #006BFF)" glyph={
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="white"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 7 L12 13 L22 7" stroke="#006BFF" strokeWidth="1.5" fill="none"/></svg>
+        }/></div>
+        <div style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }}><GenericIcon bg="radial-gradient(circle, #007AFF, #003E80)" glyph={
+          <svg width="42" height="42" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="white"/><polygon points="24,12 28,24 24,36 20,24" fill="#FF3B30"/></svg>
+        }/></div>
+        <div style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }}><GenericIcon bg="linear-gradient(180deg, #FF6B7A, #FB3A4D)" glyph={
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M19 3 L9 5 V16 a3.5 3.5 0 11-2-3 V8 l10-2 V14 a3.5 3.5 0 11-2-3 z"/></svg>
+        }/></div>
+      </div>
+
+      {/* page dots */}
+      <div style={{ position: 'absolute', bottom: 10, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6, zIndex: 2 }}>
+        <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'white' }}/>
+        <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.4)' }}/>
+        <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.4)' }}/>
+      </div>
+    </div>
+  );
+}
+
+// ─── MOOD SCREEN ─────────────────────────────────────────────────────
+function MoodScreen({ selected, onToggle, onContinue, onHome }) {
+  const count = selected.length;
+  const hasAny = count > 0;
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, padding: '8px 24px 24px',
+      display: 'flex', flexDirection: 'column',
+      background: NIGHT, color: CREAM,
+    }}>
+      {/* Close button */}
+      <div style={{ position: 'absolute', top: 'max(56px, env(safe-area-inset-top, 56px))', left: 18, zIndex: 10 }}>
+        <button onClick={onHome} style={{
+          background: `${CREAM}10`, border: 'none', color: CREAM,
+          cursor: 'pointer', width: 32, height: 32, borderRadius: 16,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2 L10 10 M10 2 L2 10" stroke={CREAM} strokeWidth="1.5" strokeLinecap="round"/></svg>
+        </button>
+      </div>
+
+      {/* Header */}
+      <div style={{ paddingTop: 'max(60px, env(safe-area-inset-top, 60px))', paddingBottom: 22, textAlign: 'center', flexShrink: 0 }}>
+        <div style={{ width: 44, height: 3, background: RED, margin: '0 auto 16px', boxShadow: `0 0 12px ${RED}88` }}/>
+        <CineMatchLogo size="lg"/>
+        <div style={{ fontSize: 9, letterSpacing: 5, color: `${CREAM}80`, textTransform: 'uppercase', fontWeight: 500, marginTop: 14 }}>Trouvez · Votre · Séance</div>
+      </div>
+
+      <div style={{ textAlign: 'center', marginBottom: 22, flexShrink: 0 }}>
+        <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 22, lineHeight: 1.25, color: CREAM }}>
+          Quelles sont vos humeurs,<br/><span style={{ fontStyle: 'italic', color: RED }}>ce soir</span> ?
+        </div>
+        <div style={{ fontSize: 11, color: `${CREAM}80`, marginTop: 10, letterSpacing: 0.3 }}>Sélectionnez-en plusieurs pour affiner.</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, flex: 1, minHeight: 0, alignContent: 'start' }}>
+        {MOODS.map(m => {
+          const active = selected.includes(m.id);
+          const idx = selected.indexOf(m.id);
+          return (
+            <button key={m.id} onClick={() => onToggle(m.id)} style={{
+              position: 'relative', overflow: 'hidden',
+              border: active ? `1px solid ${RED}` : `1px solid ${CREAM}18`,
+              borderRadius: 4, padding: '16px 12px 14px',
+              background: active
+                ? `linear-gradient(165deg, ${NIGHT} 0%, oklch(0.22 0.04 ${m.hue}) 100%)`
+                : `linear-gradient(165deg, ${NIGHT} 0%, oklch(0.18 0.025 ${m.hue}) 100%)`,
+              cursor: 'pointer', textAlign: 'left', color: CREAM,
+              transition: 'all 0.3s cubic-bezier(.2,.7,.2,1)',
+              transform: active ? 'translateY(-2px)' : 'none',
+              boxShadow: active ? `0 8px 28px ${RED}25` : '0 4px 12px rgba(0,0,0,0.3)',
+            }}>
+              <MoodGlyph kind={m.glyph} color={active ? RED : `${CREAM}cc`} size={28}/>
+              <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 19, fontStyle: 'italic', marginTop: 14, lineHeight: 1, color: active ? RED : CREAM }}>{m.label}</div>
+              <div style={{ fontSize: 10, color: `${CREAM}70`, marginTop: 6, fontWeight: 300 }}>{m.fr}</div>
+              {active && (
+                <div style={{
+                  position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: '50%',
+                  background: RED, color: CREAM, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: '"Bebas Neue", sans-serif', fontSize: 12, lineHeight: 1,
+                  boxShadow: `0 0 10px ${RED}88`,
+                }}>{idx + 1}</div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <button onClick={onContinue} disabled={!hasAny} style={{
+        marginTop: 18, flexShrink: 0, padding: '16px 20px', borderRadius: 2,
+        background: hasAny ? RED : `${CREAM}10`, color: hasAny ? CREAM : `${CREAM}40`,
+        border: 'none', cursor: hasAny ? 'pointer' : 'not-allowed',
+        fontSize: 12, fontWeight: 600, letterSpacing: 3, textTransform: 'uppercase',
+        transition: 'all 0.3s ease',
+        boxShadow: hasAny ? `0 6px 24px ${RED}40` : 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+      }}>
+        {hasAny && (
+          <span style={{ background: CREAM, color: RED, fontFamily: '"Bebas Neue", sans-serif', fontSize: 13, lineHeight: 1, padding: '3px 7px 2px', borderRadius: 2 }}>{count}</span>
+        )}
+        <span>Trouver mes films ›</span>
+      </button>
+    </div>
+  );
+}
+
+// ─── SUGGESTIONS SCREEN ──────────────────────────────────────────────
+function SuggestionsScreen({ moodIds, onBack }) {
+  const moods = moodIds.map(id => MOODS.find(m => m.id === id)).filter(Boolean);
+  // Combined ranking across all films, averaged over selected moods.
+  const combined = Object.keys(FILMS).map(fid => {
+    let sum = 0;
+    moodIds.forEach(mid => { sum += scoreFor(fid, mid); });
+    return { id: fid, score: Math.round(sum / Math.max(1, moodIds.length)) };
+  }).sort((a, b) => b.score - a.score).slice(0, 10);
+
+  const top = combined[0];
+  const topFilm = FILMS[top.id];
+  const rest = combined.slice(1);
+  const heroHue = moods[0]?.hue || 200;
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, background: NIGHT, color: CREAM,
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: 'max(56px, env(safe-area-inset-top, 56px)) 20px 14px', flexShrink: 0,
+      }}>
+        <button onClick={onBack} style={{
+          background: 'transparent', border: 'none', color: CREAM, cursor: 'pointer',
+          padding: 6, display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 11, letterSpacing: 2, textTransform: 'uppercase',
+        }}>
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M9 2 L4 7 L9 12" stroke={CREAM} strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Retour
+        </button>
+        <CineMatchLogo size="sm"/>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 20px 28px', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 9, letterSpacing: 2.5, color: `${CREAM}70`, textTransform: 'uppercase', marginBottom: 8 }}>
+            {moods.length > 1 ? `Vos humeurs · ${moods.length}` : 'Votre humeur'}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {moods.map(m => (
+              <div key={m.id} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '6px 11px 6px 8px', borderRadius: 999,
+                border: `1px solid ${RED}60`, background: `oklch(0.20 0.04 ${m.hue})`,
+              }}>
+                <MoodGlyph kind={m.glyph} color={RED} size={14}/>
+                <span style={{ fontFamily: '"Cormorant Garamond", serif', fontStyle: 'italic', fontSize: 14, color: CREAM, lineHeight: 1 }}>{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{
+          position: 'relative', borderRadius: 6, overflow: 'hidden', marginBottom: 22,
+          background: `linear-gradient(160deg, ${NIGHT} 0%, oklch(0.22 0.05 ${heroHue}) 100%)`,
+          padding: '24px 22px 22px', border: `1px solid ${RED}30`,
+          boxShadow: `0 14px 40px rgba(0,0,0,0.5), 0 0 0 1px ${RED}10`,
+        }}>
+          <Bracket pos="tl"/><Bracket pos="tr"/><Bracket pos="bl"/><Bracket pos="br"/>
+          <div style={{ fontSize: 9, letterSpacing: 3, color: RED, textTransform: 'uppercase', fontWeight: 600, marginBottom: 18, textAlign: 'center' }}>· Choix du soir ·</div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ fontFamily: '"Bebas Neue", sans-serif', fontSize: 84, lineHeight: 0.78, color: RED, textShadow: `0 0 24px ${RED}55`, flexShrink: 0 }}>01</div>
+            <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
+              <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 34, fontStyle: 'italic', color: CREAM, lineHeight: 0.95, letterSpacing: 0.5 }}>{topFilm.title}</div>
+              <div style={{ fontSize: 10, color: `${CREAM}80`, marginTop: 8, letterSpacing: 1.5, textTransform: 'uppercase' }}>{topFilm.studio} · {topFilm.year} · {topFilm.runtime}</div>
+              <div style={{ fontSize: 12.5, color: `${CREAM}b0`, marginTop: 12, lineHeight: 1.4, fontStyle: 'italic' }}>« {topFilm.tagline} »</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${CREAM}15`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 9, letterSpacing: 2.5, color: `${CREAM}70`, textTransform: 'uppercase' }}>Compatibilité</div>
+              <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 13, fontStyle: 'italic', color: CREAM, marginTop: 3 }}>
+                {moods.length > 1 ? 'Aligné avec vos humeurs combinées' : 'Parfaitement aligné avec votre humeur'}
+              </div>
+            </div>
+            <ScoreArc score={top.score} size={62} stroke={2.5}/>
+          </div>
+          <button style={{
+            marginTop: 18, width: '100%', padding: 12, background: RED, color: CREAM, border: 'none', borderRadius: 2,
+            fontSize: 11, fontWeight: 600, letterSpacing: 2.5, textTransform: 'uppercase', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            boxShadow: `0 6px 20px ${RED}40`,
+          }}>
+            <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="1,0 9,5 1,10" fill={CREAM}/></svg>
+            Regarder
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <div style={{ flex: 1, height: 1, background: `${CREAM}15` }}/>
+          <div style={{ fontSize: 9, letterSpacing: 3, color: `${CREAM}80`, textTransform: 'uppercase' }}>Autres correspondances</div>
+          <div style={{ flex: 1, height: 1, background: `${CREAM}15` }}/>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rest.map((r, i) => {
+            const f = FILMS[r.id];
+            const rank = String(i + 2).padStart(2, '0');
+            return (
+              <div key={r.id} style={{
+                display: 'flex', alignItems: 'center', gap: 16,
+                padding: '14px 14px', borderRadius: 4,
+                background: `${CREAM}04`, border: `1px solid ${CREAM}0d`, borderLeft: `2px solid ${RED}40`,
+                cursor: 'pointer',
+              }}>
+                <div style={{ fontFamily: '"Bebas Neue", sans-serif', fontSize: 32, lineHeight: 1, color: `${CREAM}50`, flexShrink: 0, width: 32, textAlign: 'center' }}>{rank}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: '"Cormorant Garamond", serif', fontSize: 21, fontStyle: 'italic', color: CREAM, lineHeight: 1 }}>{f.title}</div>
+                  <div style={{ fontSize: 9, color: `${CREAM}70`, marginTop: 5, letterSpacing: 1.4, textTransform: 'uppercase' }}>{f.studio} · {f.year} · {f.runtime}</div>
+                  <div style={{ fontSize: 11, color: `${CREAM}90`, marginTop: 5, fontStyle: 'italic', lineHeight: 1.3 }}>{f.tagline}</div>
+                </div>
+                <ScoreArc score={r.score} size={48} stroke={2}/>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: 22, fontSize: 9, letterSpacing: 4, color: `${CREAM}40`, textTransform: 'uppercase' }}>— Fin de la sélection —</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ROOT APP ────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = React.useState('home');
+  const [selectedMoods, setSelectedMoods] = React.useState([]);
+  const [opening, setOpening] = React.useState(false);
+  const now = useNow();
+  const phoneRef = useFitToPhone();
+
+  const openApp = () => {
+    setOpening(true);
+    setTimeout(() => { setScreen('mood'); setOpening(false); }, 380);
+  };
+  const toggleMood = (id) => {
+    setSelectedMoods(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+  };
+  const goToSuggestions = () => { if (selectedMoods.length > 0) setScreen('suggestions'); };
+  const goBackToMood = () => setScreen('mood');
+  const goHome = () => { setScreen('home'); setSelectedMoods([]); };
+
+  return (
+    <div className="cm-stage">
+      <div className="cm-phone" ref={phoneRef}>
+        <div className="cm-canvas">
+          <StatusBar time={formatTime(now)}/>
+
+          {/* Home indicator */}
+          <div className="cm-home-indicator" style={{
+            display: 'none',
+            position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)',
+            width: 139, height: 5, borderRadius: 100, zIndex: 100,
+            background: screen === 'home' ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.5)',
+          }}/>
+
+          {/* All screens stack with crossfade */}
+          <div style={{ position: 'absolute', inset: 0 }}>
+            {screen === 'home' && (
+              <div style={{ position: 'absolute', inset: 0, opacity: opening ? 0 : 1, transform: opening ? 'scale(1.1)' : 'scale(1)', transition: 'opacity 0.38s ease, transform 0.38s ease' }}>
+                <HomeScreen onOpenApp={openApp}/>
+              </div>
+            )}
+            {(screen === 'mood' || opening) && screen !== 'suggestions' && (
+              <div style={{ position: 'absolute', inset: 0, opacity: opening ? 0 : 1, transform: opening ? 'scale(0.92)' : 'scale(1)', transition: 'opacity 0.38s ease, transform 0.38s ease', pointerEvents: opening ? 'none' : 'auto' }}>
+                {screen === 'mood' && (
+                  <MoodScreen
+                    selected={selectedMoods}
+                    onToggle={toggleMood}
+                    onContinue={goToSuggestions}
+                    onHome={goHome}
+                  />
+                )}
+              </div>
+            )}
+            {screen === 'suggestions' && (
+              <SuggestionsScreen moodIds={selectedMoods} onBack={goBackToMood}/>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
